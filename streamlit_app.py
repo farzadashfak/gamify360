@@ -1,13 +1,9 @@
 import streamlit as st
-import mediapipe as mp
+import requests
+import tempfile
 import cv2
 import numpy as np
-import tempfile
-import requests
-
-# Pexels API for video download
-API_KEY = 'JNq2AWIyrTyFr1O5uh9fuhQ36vD0bD1yQkjIK4ZGgI4M0hYT1pr3fPB9'
-SEARCH_TERM = 'yoga'
+import mediapipe as mp
 
 # Function to download the first video from Pexels
 def download_first_video(search_term, api_key):
@@ -15,20 +11,14 @@ def download_first_video(search_term, api_key):
     headers = {'Authorization': api_key}
     response = requests.get(url, headers=headers)
     
-    # Check for HTTP errors
     if response.status_code != 200:
-        print(f'Failed to fetch videos. HTTP Error Code: {response.status_code}')
+        st.error(f'Failed to fetch videos. HTTP Error Code: {response.status_code}')
         return None
 
-    # Parse JSON response
     data = response.json()
 
-    # Debugging: print the data to see what's received
-    print(data)
-
-    # Check if 'videos' key is in the response
     if 'videos' not in data:
-        print('No videos found in the response.')
+        st.error('No videos found in the response.')
         return None
 
     video_url = data['videos'][0]['video_files'][0]['link']
@@ -38,36 +28,12 @@ def download_first_video(search_term, api_key):
     if video_response.status_code == 200:
         for chunk in video_response.iter_content(chunk_size=1024):
             temp_file.write(chunk)
-        print('Video downloaded successfully.')
+        temp_file.close()
+        st.success('Video downloaded successfully.')
         return temp_file.name
     else:
-        print('Failed to download video.')
+        st.error('Failed to download video.')
         return None
-
-# Streamlit layout
-st.title("Gamify360")
-
-# Initialize MediaPipe pose detection
-mp_pose = mp.solutions.pose
-mp_drawing = mp.solutions.drawing_utils
-pose = mp_pose.Pose(static_image_mode=False)
-
-# Download benchmark video
-downloaded_video_path = download_first_video(SEARCH_TERM, API_KEY)
-
-# Use OpenCV to capture video from the webcam
-cap_user = cv2.VideoCapture(0)  # 0 corresponds to the default webcam
-
-if 'playing' not in st.session_state:
-    st.session_state.playing = False
-
-start_button, clear_button = st.columns(2)
-if not st.session_state.playing:
-    if start_button.button('Start'):
-        st.session_state.playing = True
-else:
-    if clear_button.button('Clear'):
-        st.session_state.playing = False
 
 def cosine_distance(landmarks1, landmarks2):
     if landmarks1 and landmarks2:
@@ -80,6 +46,36 @@ def cosine_distance(landmarks1, landmarks2):
     else:
         return 1
 
+# Streamlit UI setup
+st.title("Gamify360")
+
+# Retrieve search term from query params
+query_params = st.experimental_get_query_params()
+SEARCH_TERM = query_params.get("search_term", ["tennis"])[0]
+
+# Your Pexels API key
+API_KEY = 'FT5wLemOnkgMcOU2cdSLxmUP30oX2b9l9Tb7ZkpEWigWvf3FtGmW6VXX'
+
+# Initialize MediaPipe pose detection
+mp_pose = mp.solutions.pose
+mp_drawing = mp.solutions.drawing_utils
+pose = mp_pose.Pose(static_image_mode=False)
+
+# Download benchmark video
+downloaded_video_path = download_first_video(SEARCH_TERM, API_KEY)
+
+# Setup webcam capture
+cap_user = cv2.VideoCapture(0)  # 0 corresponds to the default webcam
+
+if 'playing' not in st.session_state:
+    st.session_state.playing = False
+
+start_button, clear_button = st.columns([1, 1])
+if start_button.button('Start'):
+    st.session_state.playing = True
+elif clear_button.button('Clear'):
+    st.session_state.playing = False
+
 if st.session_state.playing and downloaded_video_path:
     cap_benchmark = cv2.VideoCapture(downloaded_video_path)
     
@@ -87,7 +83,7 @@ if st.session_state.playing and downloaded_video_path:
         st.error("Failed to open video stream. Please check the video file.")
         st.session_state.playing = False
     else:
-        col1, col2, col3 = st.columns([2, 1, 1])  # Adjust the column ratios as needed
+        col1, col2, col3 = st.columns([2, 2, 1])  # Adjust the column ratios as needed
         benchmark_video_placeholder = col1.empty()
         user_video_placeholder = col2.empty()
         stats_placeholder = col3.empty()
@@ -97,33 +93,39 @@ if st.session_state.playing and downloaded_video_path:
         frame_skip_rate = 1  # Process every n'th frame
 
         while st.session_state.playing:
-            for _ in range(frame_skip_rate):
-                cap_benchmark.read()
-
             ret_benchmark, frame_benchmark = cap_benchmark.read()
             ret_user, frame_user = cap_user.read()
 
             if not ret_benchmark or not ret_user:
+                st.session_state.playing = False
                 break
 
             total_frames += 1
 
-            # Pose detection and drawing
+            # Process and display benchmark video frame
             image_benchmark = cv2.cvtColor(frame_benchmark, cv2.COLOR_BGR2RGB)
-            image_user = cv2.cvtColor(frame_user, cv2.COLOR_BGR2RGB)
-            results_user = pose.process(image_user)
             results_benchmark = pose.process(image_benchmark)
 
+            # Process and display user video frame
+            image_user = cv2.cvtColor(frame_user, cv2.COLOR_BGR2RGB)
+            results_user = pose.process(image_user)
+
+            # Draw pose landmarks
+            if results_benchmark.pose_landmarks:
+                mp_drawing.draw_landmarks(
+                    image_benchmark, results_benchmark.pose_landmarks, mp_pose.POSE_CONNECTIONS)
             if results_user.pose_landmarks:
-                mp_drawing.draw_landmarks(image_user, results_user.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+                mp_drawing.draw_landmarks(
+                    image_user, results_user.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-            # Display videos
+            # Display both videos
             benchmark_video_placeholder.image(image_benchmark, channels="RGB", use_column_width=True)
-            user_video_placeholder.image(image_user, channels="BGR", use_column_width=True)
+            user_video_placeholder.image(image_user, channels="RGB", use_column_width=True)
 
+            # Calculate and display accuracy metrics
             error = cosine_distance(results_user.pose_landmarks, results_benchmark.pose_landmarks) * 100
             correct_step = error < 30
-            correct_steps += correct_step
+            correct_steps += int(correct_step)
 
             stats = f"""
                 Frame Error: {error:.2f}%\n
