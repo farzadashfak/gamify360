@@ -4,6 +4,7 @@ import tempfile
 import cv2
 import numpy as np
 import mediapipe as mp
+from clicker_script import clicker_script
 
 # Function to download the first video from Pexels
 def download_first_video(search_term, api_key):
