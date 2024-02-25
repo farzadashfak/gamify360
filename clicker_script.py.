@@ -1,0 +1,18 @@
+import time
+import pyautogui
+
+def clicker_script(correct_steps, total_frames):
+    while True:
+        # Check accuracy every 30 seconds
+        time.sleep(30)
+        
+        accuracy = (correct_steps / total_frames) * 100
+        if accuracy > 60:
+            print(f"Accuracy is above 60% ({accuracy:.2f}%), triggering click!")
+            # Add your clicker code here using pyautogui or another library
+            pyautogui.click()
+
+# Example usage (replace with your actual correct_steps and total_frames values)
+correct_steps_example = 100
+total_frames_example = 150
+clicker_script(correct_steps_example, total_frames_example)
